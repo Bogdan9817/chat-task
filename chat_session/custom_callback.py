@@ -11,29 +11,9 @@ class CustomAsyncCallBackHandler(AsyncIteratorCallbackHandler):
         self.content: str = ""
         self.final_answer: bool = False
 
-    async def on_chat_model_start(
-        self,
-        serialized,
-        messages,
-        *,
-        run_id,
-        parent_run_id=None,
-        tags=None,
-        metadata=None,
-        **kwargs,
-    ):
-        return await super().on_chat_model_start(
-            serialized,
-            messages,
-            run_id=run_id,
-            parent_run_id=parent_run_id,
-            tags=tags,
-            metadata=metadata,
-            **kwargs,
-        )
-
     async def on_llm_new_token(self, token: str, **kwargs: any) -> None:
         self.content += token
+
         self.meta["used_tokens"] += 1
         if self.final_answer:
             if '"action_input": "' in self.content:

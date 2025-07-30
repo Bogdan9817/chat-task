@@ -29,6 +29,7 @@ class KnowledgeGraph:
         self.graph = Neo4jGraph(
             url=url, username=username, password=password, enhanced_schema=True
         )
+        self.knowledge_graph = None
         self.graph.refresh_schema()
         self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=api_key)
         self.llm_transformer = LLMGraphTransformer(llm=self.llm)
@@ -39,6 +40,7 @@ class KnowledgeGraph:
             allow_dangerous_requests=True,
         )
         self.meta_output = self.prepare_graph_metadata()
+        self.setup_graph()
 
     async def add_documents(self, documents: list[Document]) -> None:
         graph_documents = await self.prepare_graph_documents(documents=documents)
@@ -223,26 +225,27 @@ class KnowledgeGraph:
             return "execute_cypher"
 
     def graph_search(self, input: str):
-        langgraph = StateGraph(OverallState, input=InputState, output=OutputState)
-        langgraph.add_node(self.guardrails)
-        langgraph.add_node(self.generate_cypher)
-        langgraph.add_node(self.validate_cypher)
-        langgraph.add_node(self.correct_cypher)
-        langgraph.add_node(self.execute_cypher)
-        langgraph.add_node(self.generate_final_answer)
-        langgraph.add_edge(START, "guardrails")
-        langgraph.add_conditional_edges(
+        return self.knowledge_graph.invoke({"question": input})
+
+    def setup_graph(self) -> StateGraph:
+        knowledge_graph = StateGraph(OverallState, input=InputState, output=OutputState)
+        knowledge_graph.add_node(self.guardrails)
+        knowledge_graph.add_node(self.generate_cypher)
+        knowledge_graph.add_node(self.validate_cypher)
+        knowledge_graph.add_node(self.correct_cypher)
+        knowledge_graph.add_node(self.execute_cypher)
+        knowledge_graph.add_node(self.generate_final_answer)
+        knowledge_graph.add_edge(START, "guardrails")
+        knowledge_graph.add_conditional_edges(
             "guardrails",
             self.guardrails_condition,
         )
-        langgraph.add_edge("generate_cypher", "validate_cypher")
-        langgraph.add_conditional_edges(
+        knowledge_graph.add_edge("generate_cypher", "validate_cypher")
+        knowledge_graph.add_conditional_edges(
             "validate_cypher",
             self.validate_cypher_condition,
         )
-        langgraph.add_edge("execute_cypher", "generate_final_answer")
-        langgraph.add_edge("correct_cypher", "validate_cypher")
-        langgraph.add_edge("generate_final_answer", END)
-
-        langgraph = langgraph.compile()
-        return langgraph.invoke({"question": input})
+        knowledge_graph.add_edge("execute_cypher", "generate_final_answer")
+        knowledge_graph.add_edge("correct_cypher", "validate_cypher")
+        knowledge_graph.add_edge("generate_final_answer", END)
+        self.knowledge_graph = knowledge_graph.compile()
