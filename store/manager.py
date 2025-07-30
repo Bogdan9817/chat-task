@@ -2,7 +2,7 @@ from langchain_core.documents import Document
 from fastapi import UploadFile
 
 from store.knowledge_base import KnowledgeBase
-from store.knowledge_graph import KnowledgeGraph
+from store.graph.knowledge_graph import KnowledgeGraph
 from utils.convert import convert_files_to_document
 
 
@@ -18,5 +18,8 @@ class Store:
         await self.kg.add_documents(documents)
 
     async def upload_files(self, files: list[UploadFile]) -> None:
-        docs = convert_files_to_document(files)
-        await self.add_documents(docs)
+        try:
+            docs = await convert_files_to_document(files)
+            await self.add_documents(docs)
+        except Exception as e:
+            raise e

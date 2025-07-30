@@ -2,13 +2,14 @@ import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, Response
+from fastapi import FastAPI, UploadFile, Response, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 
 from store.knowledge_base import KnowledgeBase
-from store.knowledge_graph import KnowledgeGraph
+from store.graph.knowledge_graph import KnowledgeGraph
 from store.manager import Store
+from chat_session.session_manager import SessionManager
 from load_static import txt_folder_to_documents
-from agentic.agent import Agent
 
 import uvicorn
 
@@ -21,27 +22,28 @@ api_key = os.getenv("OPENAI_API_KEY")
 async def lifespan(app: FastAPI):
     api_key = os.getenv("OPENAI_API_KEY")
     docs = txt_folder_to_documents("static_data")
-    print(f"Loaded {len(docs)} documents from static data.")
-    kb = KnowledgeBase(api_key)
-    kg = KnowledgeGraph(
+    app.state.kb = KnowledgeBase(api_key)
+    app.state.kg = KnowledgeGraph(
         api_key,
         url=os.getenv("NEO4J_URL"),
         username=os.getenv("NEO4J_USERNAME"),
         password=os.getenv("NEO4J_PASSWORD"),
     )
-    store_manager = Store(kb, kg)
-
-    await store_manager.add_documents(docs)
-    agent = Agent(kb, kg, api_key)
-
-    app.state.kb = kb
-    app.state.kg = kg
-    app.state.store_manager = store_manager
-    app.state.agent = agent
+    app.state.store_manager = Store(app.state.kb, app.state.kg)
+    app.state.session_manager = SessionManager(app.state.kb, app.state.kg)
+    await app.state.store_manager.add_documents(docs)
     yield
 
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -57,11 +59,18 @@ async def upload_file(files: list[UploadFile]) -> Response:
         return {"error": str(e)}
 
 
-@app.post("/ask")
-async def ask_agent(q: dict) -> Response:
+@app.post("/init_session")
+async def initialize_agent(q: dict) -> Response:
     try:
-        result = await app.state.agent.ask(q["question"])
-        return result
+        return app.state.session_manager.init_session(**q)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.websocket("/stream")
+async def chat(websocket: WebSocket) -> Response:
+    try:
+        await app.state.session_manager.handle_chat(websocket)
     except Exception as e:
         return {"error": str(e)}
 
